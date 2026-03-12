@@ -19,10 +19,22 @@ export interface Friendship {
   addressee?: Profile
 }
 
+export type MemberStatus = 'pending' | 'accepted' | 'declined'
+
+export interface DateInviteMember {
+  id: string
+  date_invite_id: string
+  user_id: string
+  status: MemberStatus
+  created_at: string
+  profile?: Profile
+}
+
 export interface DateInvite {
   id: string
   creator_id: string
-  partner_id: string
+  partner_id: string | null
+  is_group: boolean
   title: string
   personal_message: string | null
   proposed_date: string
@@ -35,6 +47,7 @@ export interface DateInvite {
   creator?: Profile
   partner?: Profile
   places?: Place[]
+  members?: DateInviteMember[]
 }
 
 export interface Place {

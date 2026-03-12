@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Calendar, MapPin, CheckCircle, Heart, XCircle, AlertTriangle, Camera, BookHeart, ImagePlus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, CheckCircle, Heart, XCircle, AlertTriangle, Camera, BookHeart, ImagePlus, Trash2, Download, Users, User } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
-import type { DateInvite, Place, DateMemory } from '../types/database'
+import type { DateInvite, Place, DateMemory, DateInviteMember } from '../types/database'
 
 export default function AcceptInvite() {
   const { id } = useParams<{ id: string }>()
@@ -29,6 +29,7 @@ export default function AcceptInvite() {
   const [savingMemory, setSavingMemory] = useState(false)
   const [uploadingMemoryPhoto, setUploadingMemoryPhoto] = useState(false)
   const [memoryMessage, setMemoryMessage] = useState('')
+  const [members, setMembers] = useState<DateInviteMember[]>([])
 
   useEffect(() => {
     if (id) fetchInvite()
@@ -52,6 +53,15 @@ export default function AcceptInvite() {
       setConfirmedTime(data.confirmed_time || data.proposed_time)
       const selected = (data.places ?? []).filter((p: Place) => p.is_selected).map((p: Place) => p.id)
       setSelectedPlaces(new Set(selected))
+
+      // Fetch members separately to avoid circular RLS issues
+      if (data.is_group) {
+        const { data: membersData } = await supabase
+          .from('date_invite_members')
+          .select('*, profile:profiles!date_invite_members_user_id_profiles_fkey (*)')
+          .eq('date_invite_id', id)
+        setMembers((membersData ?? []) as DateInviteMember[])
+      }
     }
     setLoading(false)
   }
@@ -185,9 +195,15 @@ export default function AcceptInvite() {
 
   const isCreator = user?.id === dateInvite.creator_id
   const isPartner = user?.id === dateInvite.partner_id
-  const otherName = isCreator ? (dateInvite.partner?.full_name ?? 'Partner') : (dateInvite.creator?.full_name ?? 'Partner')
-  const canEdit = isPartner && dateInvite.status === 'pending'
+  const isMember = members.some(m => m.user_id === user?.id)
+  const isGroupDate = dateInvite.is_group
+  const otherName = isGroupDate
+    ? `${members.length} friends`
+    : isCreator ? (dateInvite.partner?.full_name ?? 'Partner') : (dateInvite.creator?.full_name ?? 'Partner')
+  const canEdit = (isPartner || isMember) && dateInvite.status === 'pending'
   const isCancelled = dateInvite.status === 'cancelled'
+  const myMembership = members.find(m => m.user_id === user?.id)
+  const allMembersAccepted = isGroupDate && members.length > 0 && members.every(m => m.status === 'accepted')
 
   const statusBadgeClass = () => {
     switch (dateInvite.status) {
@@ -221,6 +237,7 @@ export default function AcceptInvite() {
             <h1 className={`text-xl font-extrabold ${isDark ? 'text-white' : 'text-slate-800'}`}>{dateInvite.title}</h1>
             <div className="flex items-center gap-2 mt-1">
               <span className={`badge ${statusBadgeClass()}`}>{statusLabel()}</span>
+              {isGroupDate && <span className="badge badge-confirmed flex items-center gap-1"><Users className="w-3 h-3" /> Group</span>}
               <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>with {otherName}</span>
             </div>
           </div>
@@ -245,6 +262,47 @@ export default function AcceptInvite() {
         {dateInvite.personal_message && (
           <div className={`${isDark ? 'card-dark' : 'card-light'} p-4 mb-4`}>
             <p className={`italic ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>"{dateInvite.personal_message}"</p>
+          </div>
+        )}
+
+        {/* Group Members */}
+        {isGroupDate && members.length > 0 && (
+          <div className={`${isDark ? 'card-dark' : 'card-light'} p-5 mb-4`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-5 h-5 text-rose" />
+              <h2 className={`font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Members</h2>
+              <span className={`text-sm ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>({members.length})</span>
+            </div>
+            {/* Creator */}
+            <div className={`flex items-center gap-3 py-2 px-3 rounded-xl mb-1 ${isDark ? 'bg-dark-input' : 'bg-cream-input'}`}>
+              <div className={`w-8 h-8 rounded-full overflow-hidden shrink-0 ${!dateInvite.creator?.avatar_url ? 'bg-love-gradient flex items-center justify-center' : ''}`}>
+                {dateInvite.creator?.avatar_url ? (
+                  <img src={dateInvite.creator.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-4 h-4 text-white" />
+                )}
+              </div>
+              <span className={`text-sm font-medium flex-1 ${isDark ? 'text-white' : 'text-slate-800'}`}>{dateInvite.creator?.full_name}</span>
+              <span className="text-xs font-semibold text-rose">Organizer</span>
+            </div>
+            {/* Members */}
+            {members.map(m => (
+              <div key={m.id} className={`flex items-center gap-3 py-2 px-3 rounded-xl mb-1 ${isDark ? 'bg-dark-input' : 'bg-cream-input'}`}>
+                <div className={`w-8 h-8 rounded-full overflow-hidden shrink-0 ${!m.profile?.avatar_url ? 'bg-love-gradient flex items-center justify-center' : ''}`}>
+                  {m.profile?.avatar_url ? (
+                    <img src={m.profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-white" />
+                  )}
+                </div>
+                <span className={`text-sm font-medium flex-1 ${isDark ? 'text-white' : 'text-slate-800'}`}>{m.profile?.full_name}</span>
+                <span className={`text-xs font-semibold ${
+                  m.status === 'accepted' ? 'text-emerald-400' : m.status === 'declined' ? 'text-red-400' : isDark ? 'text-gray-500' : 'text-slate-400'
+                }`}>
+                  {m.status === 'accepted' ? 'Accepted' : m.status === 'declined' ? 'Declined' : 'Pending'}
+                </span>
+              </div>
+            ))}
           </div>
         )}
 
@@ -334,12 +392,24 @@ export default function AcceptInvite() {
                 {memoPhotos.map((url, i) => (
                   <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                     <img src={url} alt="" className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => removeMemoryPhoto(i)}
-                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-white" />
-                    </button>
+                    <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <a
+                        href={url}
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-6 h-6 rounded-full bg-black/60 flex items-center justify-center hover:bg-black/80 transition"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Download className="w-3.5 h-3.5 text-white" />
+                      </a>
+                      <button
+                        onClick={() => removeMemoryPhoto(i)}
+                        className="w-6 h-6 rounded-full bg-black/60 flex items-center justify-center hover:bg-red-500/80 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-white" />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {memoPhotos.length < 3 && (
@@ -399,16 +469,58 @@ export default function AcceptInvite() {
           </div>
         )}
 
+        {/* Accept/Decline for group members */}
+        {isGroupDate && isMember && myMembership?.status === 'pending' && dateInvite.status === 'pending' && (
+          <div className={`${isDark ? 'card-dark' : 'card-light'} p-5 mb-4`}>
+            <p className={`text-sm mb-3 font-semibold ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+              {dateInvite.creator?.full_name} invited you to this group date!
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  if (!myMembership) return
+                  await supabase.from('date_invite_members').update({ status: 'accepted' }).eq('id', myMembership.id)
+                  fetchInvite()
+                }}
+                className="flex-1 btn-primary flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="w-4 h-4" /> Accept
+              </button>
+              <button
+                onClick={async () => {
+                  if (!myMembership) return
+                  await supabase.from('date_invite_members').update({ status: 'declined' }).eq('id', myMembership.id)
+                  fetchInvite()
+                }}
+                className={`flex-1 font-semibold rounded-2xl py-3 transition border-2 ${
+                  isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-red-300 text-red-500 hover:bg-red-50'
+                }`}
+              >
+                <span className="flex items-center justify-center gap-2"><XCircle className="w-4 h-4" /> Decline</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="space-y-3">
-          {canEdit && (
+          {/* Single date: partner confirms */}
+          {canEdit && !isGroupDate && (
             <button onClick={handleConfirm} disabled={submitting} className="w-full btn-primary !py-4 flex items-center justify-center gap-2 disabled:opacity-50">
               <CheckCircle className="w-5 h-5" />
               {submitting ? 'Confirming...' : 'Confirm Date'}
             </button>
           )}
 
-          {dateInvite.status === 'confirmed' && (isCreator || isPartner) && (
+          {/* Group date: creator confirms once all members accepted */}
+          {isGroupDate && isCreator && allMembersAccepted && dateInvite.status === 'pending' && (
+            <button onClick={handleConfirm} disabled={submitting} className="w-full btn-primary !py-4 flex items-center justify-center gap-2 disabled:opacity-50">
+              <CheckCircle className="w-5 h-5" />
+              {submitting ? 'Confirming...' : 'Confirm Group Date'}
+            </button>
+          )}
+
+          {dateInvite.status === 'confirmed' && (isCreator || isPartner || isMember) && (
             <button onClick={handleComplete} disabled={submitting}
               className="w-full font-bold rounded-2xl py-4 text-white flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               style={{ background: 'linear-gradient(135deg, #10b981, #14b8a6)' }}
@@ -418,7 +530,7 @@ export default function AcceptInvite() {
             </button>
           )}
 
-          {(dateInvite.status === 'pending' || dateInvite.status === 'confirmed') && (isCreator || isPartner) && (
+          {(dateInvite.status === 'pending' || dateInvite.status === 'confirmed') && (isCreator || isPartner || isMember) && (
             <>
               {!showCancelConfirm ? (
                 <button onClick={() => setShowCancelConfirm(true)}

@@ -24,22 +24,51 @@ export default function Home() {
 
   const fetchDates = async () => {
     if (!user) return
-    const { data } = await supabase
+
+    const selectQuery = `
+      *,
+      places (*),
+      creator:profiles!date_invites_creator_id_fkey (*),
+      partner:profiles!date_invites_partner_id_fkey (*)
+    `
+
+    // Fetch direct dates (creator or partner)
+    const { data: directDates } = await supabase
       .from('date_invites')
-      .select(`
-        *,
-        places (*),
-        creator:profiles!date_invites_creator_id_fkey (*),
-        partner:profiles!date_invites_partner_id_fkey (*)
-      `)
+      .select(selectQuery)
       .or(`creator_id.eq.${user.id},partner_id.eq.${user.id}`)
       .order('proposed_date', { ascending: false })
 
-    setDates(data ?? [])
+    // Fetch group dates where user is a member
+    const { data: memberDateIds } = await supabase
+      .from('date_invite_members')
+      .select('date_invite_id')
+      .eq('user_id', user.id)
+
+    let groupDates: DateInvite[] = []
+    if (memberDateIds && memberDateIds.length > 0) {
+      const ids = memberDateIds.map(m => m.date_invite_id)
+      const { data } = await supabase
+        .from('date_invites')
+        .select(selectQuery)
+        .in('id', ids)
+        .order('proposed_date', { ascending: false })
+      groupDates = (data ?? []) as DateInvite[]
+    }
+
+    // Merge and deduplicate
+    const allDates = [...(directDates ?? []), ...groupDates] as DateInvite[]
+    const unique = Array.from(new Map(allDates.map(d => [d.id, d])).values())
+    unique.sort((a, b) => b.proposed_date.localeCompare(a.proposed_date))
+
+    setDates(unique)
     setLoading(false)
   }
 
   const getPartner = (dateInvite: DateInvite) => {
+    if (dateInvite.is_group) {
+      return { name: 'Group Date', avatar: null }
+    }
     const partner = dateInvite.creator_id === user?.id ? dateInvite.partner : dateInvite.creator
     return { name: partner?.full_name ?? 'Partner', avatar: partner?.avatar_url ?? null }
   }

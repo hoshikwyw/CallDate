@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Heart, MapPin, Plus, X, Upload } from 'lucide-react'
+import { ArrowLeft, Heart, MapPin, Plus, X, Upload, Users, User, Check } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
@@ -20,9 +20,11 @@ export default function CreateDate() {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
+  const [isGroup, setIsGroup] = useState(false)
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [partnerId, setPartnerId] = useState('')
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([])
   const [proposedDate, setProposedDate] = useState('')
   const [proposedTime, setProposedTime] = useState('')
   const [places, setPlaces] = useState<PlaceForm[]>([])
@@ -73,11 +75,16 @@ export default function CreateDate() {
 
   const removePlace = (index: number) => setPlaces(prev => prev.filter((_, i) => i !== index))
 
+  const toggleMember = (id: string) => {
+    setSelectedMembers(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id])
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
     if (places.length === 0) { setError('Add at least one place'); return }
-    if (!partnerId) { setError('Select a partner'); return }
+    if (isGroup && selectedMembers.length < 2) { setError('Select at least 2 friends for a group date'); return }
+    if (!isGroup && !partnerId) { setError('Select a partner'); return }
 
     setLoading(true)
     setError('')
@@ -86,7 +93,8 @@ export default function CreateDate() {
       .from('date_invites')
       .insert({
         creator_id: user.id,
-        partner_id: partnerId,
+        partner_id: isGroup ? null : partnerId,
+        is_group: isGroup,
         title,
         personal_message: message || null,
         proposed_date: proposedDate,
@@ -100,6 +108,16 @@ export default function CreateDate() {
       setError(dateError?.message ?? 'Failed to create date invite')
       setLoading(false)
       return
+    }
+
+    // Insert group members if group date
+    if (isGroup && selectedMembers.length > 0) {
+      const memberRows = selectedMembers.map(userId => ({
+        date_invite_id: dateInvite.id,
+        user_id: userId,
+        status: 'pending' as const,
+      }))
+      await supabase.from('date_invite_members').insert(memberRows)
     }
 
     for (const place of places) {
@@ -162,7 +180,37 @@ export default function CreateDate() {
               <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write something sweet..." rows={3} className="w-full input-base resize-none" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* Date Type Toggle */}
+            <div>
+              <label className={`block text-sm font-semibold mb-1.5 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>Date Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsGroup(false); setSelectedMembers([]) }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition ${
+                    !isGroup
+                      ? 'bg-rose text-white shadow-glow'
+                      : isDark ? 'bg-dark-input border border-dark-border text-gray-400 hover:border-rose' : 'bg-cream-input border border-cream-border text-slate-500 hover:border-rose'
+                  }`}
+                >
+                  <User className="w-4 h-4" /> Single Date
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsGroup(true); setPartnerId('') }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition ${
+                    isGroup
+                      ? 'bg-rose text-white shadow-glow'
+                      : isDark ? 'bg-dark-input border border-dark-border text-gray-400 hover:border-rose' : 'bg-cream-input border border-cream-border text-slate-500 hover:border-rose'
+                  }`}
+                >
+                  <Users className="w-4 h-4" /> Group Date
+                </button>
+              </div>
+            </div>
+
+            {/* Partner / Members Selection */}
+            {!isGroup ? (
               <div>
                 <label className={`block text-sm font-semibold mb-1.5 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>Partner *</label>
                 <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)} required className="w-full input-base">
@@ -170,8 +218,47 @@ export default function CreateDate() {
                   {friends.map(f => <option key={f.id} value={f.id}>{f.full_name}</option>)}
                 </select>
               </div>
-              <div />
-            </div>
+            ) : (
+              <div>
+                <label className={`block text-sm font-semibold mb-1.5 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                  Invite Friends * <span className={`font-normal ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>({selectedMembers.length} selected)</span>
+                </label>
+                <div className={`rounded-xl border max-h-48 overflow-y-auto ${isDark ? 'bg-dark-input border-dark-border' : 'bg-cream-input border-cream-border'}`}>
+                  {friends.length === 0 ? (
+                    <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>No friends yet</p>
+                  ) : (
+                    friends.map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => toggleMember(f.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 transition ${
+                          selectedMembers.includes(f.id)
+                            ? 'bg-rose/10'
+                            : isDark ? 'hover:bg-dark-hover' : 'hover:bg-cream-hover'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 ${!f.avatar_url ? 'bg-love-gradient flex items-center justify-center' : ''}`}>
+                          {f.avatar_url ? (
+                            <img src={f.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-4 h-4 text-white" />
+                          )}
+                        </div>
+                        <span className={`text-sm font-medium flex-1 text-left ${isDark ? 'text-white' : 'text-slate-800'}`}>{f.full_name}</span>
+                        <div className={`w-5 h-5 rounded-md flex items-center justify-center transition ${
+                          selectedMembers.includes(f.id)
+                            ? 'bg-rose text-white'
+                            : isDark ? 'border border-dark-border' : 'border border-cream-border'
+                        }`}>
+                          {selectedMembers.includes(f.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
