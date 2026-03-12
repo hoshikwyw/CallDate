@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Calendar, MapPin, CheckCircle, Heart, XCircle, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, CheckCircle, Heart, XCircle, AlertTriangle, Camera, BookHeart, ImagePlus, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
-import type { DateInvite, Place } from '../types/database'
+import type { DateInvite, Place, DateMemory } from '../types/database'
 
 export default function AcceptInvite() {
   const { id } = useParams<{ id: string }>()
@@ -21,10 +21,22 @@ export default function AcceptInvite() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [memory, setMemory] = useState<DateMemory | null>(null)
+  const [memoText, setMemoText] = useState('')
+  const [memoPhotos, setMemoPhotos] = useState<string[]>([])
+  const [savingMemory, setSavingMemory] = useState(false)
+  const [uploadingMemoryPhoto, setUploadingMemoryPhoto] = useState(false)
+  const [memoryMessage, setMemoryMessage] = useState('')
 
   useEffect(() => {
     if (id) fetchInvite()
   }, [id])
+
+  useEffect(() => {
+    if (dateInvite?.status === 'completed' && id) fetchMemory()
+  }, [dateInvite?.status, id])
 
   const fetchInvite = async () => {
     const { data } = await supabase
@@ -68,7 +80,7 @@ export default function AcceptInvite() {
   const handleCancel = async () => {
     if (!dateInvite || !user) return
     setSubmitting(true)
-    await supabase.from('date_invites').update({ status: 'cancelled' }).eq('id', dateInvite.id)
+    await supabase.from('date_invites').update({ status: 'cancelled', cancel_reason: cancelReason.trim() || null }).eq('id', dateInvite.id)
     navigate('/')
   }
 
@@ -78,6 +90,82 @@ export default function AcceptInvite() {
     await supabase.from('date_invites').update({ status: 'completed' }).eq('id', dateInvite.id)
     navigate('/')
   }
+
+  const handleDelete = async () => {
+    if (!dateInvite || !user) return
+    setSubmitting(true)
+    await supabase.from('date_invites').delete().eq('id', dateInvite.id)
+    navigate('/')
+  }
+
+  const fetchMemory = async () => {
+    const { data } = await supabase
+      .from('date_memories')
+      .select('*')
+      .eq('date_invite_id', id)
+      .maybeSingle()
+
+    if (data) {
+      setMemory(data)
+      setMemoText(data.memo ?? '')
+      setMemoPhotos(data.photo_urls ?? [])
+    }
+  }
+
+  const handleMemoryPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user || !id || memoPhotos.length >= 3) return
+    setUploadingMemoryPhoto(true)
+
+    const fileExt = file.name.split('.').pop()
+    const filePath = `memories/${id}/${Date.now()}.${fileExt}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('place-photos')
+      .upload(filePath, file, { upsert: true })
+
+    if (!uploadError) {
+      const { data } = supabase.storage.from('place-photos').getPublicUrl(filePath)
+      setMemoPhotos(prev => [...prev, data.publicUrl])
+    }
+    setUploadingMemoryPhoto(false)
+  }
+
+  const removeMemoryPhoto = (index: number) => {
+    setMemoPhotos(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const saveMemory = async () => {
+    if (!user || !id) return
+    setSavingMemory(true)
+    setMemoryMessage('')
+
+    const memoryData = {
+      date_invite_id: id,
+      user_id: user.id,
+      memo: memoText.trim() || null,
+      photo_urls: memoPhotos,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (memory) {
+      const { error } = await supabase.from('date_memories').update({
+        memo: memoryData.memo,
+        photo_urls: memoryData.photo_urls,
+        updated_at: memoryData.updated_at,
+      }).eq('id', memory.id)
+      if (error) setMemoryMessage('Failed to save')
+      else { setMemoryMessage('Memory saved!'); fetchMemory() }
+    } else {
+      const { error } = await supabase.from('date_memories').insert(memoryData)
+      if (error) setMemoryMessage('Failed to save')
+      else { setMemoryMessage('Memory saved!'); fetchMemory() }
+    }
+    setSavingMemory(false)
+    setTimeout(() => setMemoryMessage(''), 3000)
+  }
+
+  const wordCount = memoText.trim().split(/\s+/).filter(Boolean).length
 
   if (loading) {
     return (
@@ -140,9 +228,16 @@ export default function AcceptInvite() {
 
         {/* Cancelled banner */}
         {isCancelled && (
-          <div className={`flex items-center gap-3 rounded-2xl p-4 mb-4 ${isDark ? 'bg-gray-500/10 border border-gray-500/20' : 'bg-gray-100 border border-gray-200'}`}>
-            <XCircle className="w-5 h-5 text-gray-400 shrink-0" />
-            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>This date has been cancelled.</p>
+          <div className={`rounded-2xl p-4 mb-4 ${isDark ? 'bg-gray-500/10 border border-gray-500/20' : 'bg-gray-100 border border-gray-200'}`}>
+            <div className="flex items-center gap-3">
+              <XCircle className="w-5 h-5 text-gray-400 shrink-0" />
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>This date has been cancelled.</p>
+            </div>
+            {dateInvite.cancel_reason && (
+              <p className={`text-sm mt-2 ml-8 italic ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>
+                Reason: "{dateInvite.cancel_reason}"
+              </p>
+            )}
           </div>
         )}
 
@@ -222,6 +317,88 @@ export default function AcceptInvite() {
           </div>
         </div>
 
+        {/* Memory Section - only for completed dates */}
+        {dateInvite.status === 'completed' && (
+          <div className={`${isDark ? 'card-dark' : 'card-light'} p-5 mb-6`}>
+            <div className="flex items-center gap-2 mb-4">
+              <BookHeart className="w-5 h-5 text-rose" />
+              <h2 className={`font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Date Memory</h2>
+            </div>
+
+            {/* Memory Photos */}
+            <div className="mb-4">
+              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                Photos <span className={`font-normal ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>({memoPhotos.length}/3)</span>
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                {memoPhotos.map((url, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
+                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeMemoryPhoto(i)}
+                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-white" />
+                    </button>
+                  </div>
+                ))}
+                {memoPhotos.length < 3 && (
+                  <label className={`aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition ${
+                    isDark ? 'border-dark-border hover:border-rose/50 text-gray-500' : 'border-cream-border hover:border-rose/50 text-slate-400'
+                  }`}>
+                    {uploadingMemoryPhoto ? (
+                      <div className="w-5 h-5 border-2 border-rose border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <ImagePlus className="w-6 h-6 mb-1" />
+                        <span className="text-[10px] font-semibold">Add Photo</span>
+                      </>
+                    )}
+                    <input type="file" accept="image/*" onChange={handleMemoryPhotoUpload} className="hidden" disabled={uploadingMemoryPhoto} />
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {/* Memo Text */}
+            <div className="mb-4">
+              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                Leave a Memo <span className={`font-normal ${isDark ? 'text-gray-500' : 'text-slate-400'}`}>(optional, max 500 words)</span>
+              </label>
+              <textarea
+                value={memoText}
+                onChange={(e) => {
+                  const words = e.target.value.trim().split(/\s+/).filter(Boolean).length
+                  if (words <= 500 || e.target.value.length < memoText.length) {
+                    setMemoText(e.target.value)
+                  }
+                }}
+                placeholder="Write about your date experience..."
+                rows={5}
+                className="w-full input-base resize-none"
+              />
+              <p className={`text-xs mt-1 text-right ${wordCount > 450 ? 'text-amber-400' : isDark ? 'text-gray-600' : 'text-slate-400'}`}>
+                {wordCount}/500 words
+              </p>
+            </div>
+
+            {memoryMessage && (
+              <p className={`text-sm mb-3 font-semibold ${memoryMessage.includes('saved') ? 'text-emerald-400' : 'text-red-400'}`}>
+                {memoryMessage}
+              </p>
+            )}
+
+            <button
+              onClick={saveMemory}
+              disabled={savingMemory || (memoPhotos.length === 0 && !memoText.trim())}
+              className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Camera className="w-4 h-4" />
+              {savingMemory ? 'Saving...' : memory ? 'Update Memory' : 'Save Memory'}
+            </button>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="space-y-3">
           {canEdit && (
@@ -258,9 +435,16 @@ export default function AcceptInvite() {
                     <AlertTriangle className="w-5 h-5 text-red-400" />
                     <p className={`font-bold text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>Are you sure?</p>
                   </div>
-                  <p className={`text-xs mb-4 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                  <p className={`text-xs mb-3 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
                     This will cancel the date for both you and {otherName}. This action cannot be undone.
                   </p>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Reason for cancelling (optional)"
+                    rows={2}
+                    className="w-full input-base resize-none mb-3 text-sm"
+                  />
                   <div className="flex gap-2">
                     <button onClick={handleCancel} disabled={submitting}
                       className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl py-2.5 transition disabled:opacity-50 flex items-center justify-center gap-2"
@@ -269,6 +453,45 @@ export default function AcceptInvite() {
                       {submitting ? 'Cancelling...' : 'Yes, Cancel'}
                     </button>
                     <button onClick={() => setShowCancelConfirm(false)}
+                      className={`flex-1 font-semibold rounded-xl py-2.5 transition ${isDark ? 'bg-dark-hover text-gray-300 hover:bg-dark-input' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    >
+                      Keep Date
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Delete button for completed dates */}
+          {(dateInvite.status === 'completed' || dateInvite.status === 'cancelled') && isCreator && (
+            <>
+              {!showDeleteConfirm ? (
+                <button onClick={() => setShowDeleteConfirm(true)}
+                  className={`w-full flex items-center justify-center gap-2 font-semibold rounded-2xl py-4 transition-all duration-200 border-2 ${
+                    isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-red-300 text-red-500 hover:bg-red-50'
+                  }`}
+                >
+                  <Trash2 className="w-5 h-5" />
+                  Delete Date
+                </button>
+              ) : (
+                <div className={`rounded-2xl p-4 border-2 ${isDark ? 'border-red-500/30 bg-red-500/5' : 'border-red-200 bg-red-50'}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                    <p className={`font-bold text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>Delete this date?</p>
+                  </div>
+                  <p className={`text-xs mb-4 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                    This will permanently delete this date, all places, and any saved memories. This cannot be undone.
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={handleDelete} disabled={submitting}
+                      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl py-2.5 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {submitting ? 'Deleting...' : 'Yes, Delete'}
+                    </button>
+                    <button onClick={() => setShowDeleteConfirm(false)}
                       className={`flex-1 font-semibold rounded-xl py-2.5 transition ${isDark ? 'bg-dark-hover text-gray-300 hover:bg-dark-input' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                     >
                       Keep Date

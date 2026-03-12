@@ -1,10 +1,11 @@
-import { Calendar, Clock, MapPin, Image } from 'lucide-react'
+import { Calendar, Clock, MapPin, Image, User } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import type { DateInvite } from '../types/database'
 
 interface DateCardProps {
   dateInvite: DateInvite
   partnerName: string
+  partnerAvatar?: string | null
   onClick?: () => void
 }
 
@@ -15,7 +16,7 @@ const statusConfig = {
   cancelled: { label: 'Cancelled', cls: 'badge-cancelled' },
 }
 
-export default function DateCard({ dateInvite, partnerName, onClick }: DateCardProps) {
+export default function DateCard({ dateInvite, partnerName, partnerAvatar, onClick }: DateCardProps) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const status = statusConfig[dateInvite.status]
@@ -67,7 +68,18 @@ export default function DateCard({ dateInvite, partnerName, onClick }: DateCardP
           </span>
         </div>
 
-        <p className="text-sm font-semibold text-rose">with {partnerName}</p>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full overflow-hidden shrink-0">
+            {partnerAvatar ? (
+              <img src={partnerAvatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-love-gradient flex items-center justify-center">
+                <User className="w-3 h-3 text-white" />
+              </div>
+            )}
+          </div>
+          <p className="text-sm font-semibold text-rose">with {partnerName}</p>
+        </div>
       </div>
     </button>
   )

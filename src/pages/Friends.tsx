@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, UserPlus, Check, X, Users, Heart } from 'lucide-react'
+import { ArrowLeft, UserPlus, Check, X, Users, Heart, CalendarHeart } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
@@ -16,13 +16,35 @@ export default function Friends() {
   const [pendingReceived, setPendingReceived] = useState<Friendship[]>([])
   const [pendingSent, setPendingSent] = useState<Friendship[]>([])
   const [searchEmail, setSearchEmail] = useState('')
+  const [completedCounts, setCompletedCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    if (user) fetchFriendships()
+    if (user) {
+      fetchFriendships()
+      fetchCompletedCounts()
+    }
   }, [user])
+
+  const fetchCompletedCounts = async () => {
+    if (!user) return
+    const { data } = await supabase
+      .from('date_invites')
+      .select('creator_id, partner_id')
+      .eq('status', 'completed')
+      .or(`creator_id.eq.${user.id},partner_id.eq.${user.id}`)
+
+    if (data) {
+      const counts: Record<string, number> = {}
+      data.forEach(d => {
+        const friendId = d.creator_id === user.id ? d.partner_id : d.creator_id
+        counts[friendId] = (counts[friendId] || 0) + 1
+      })
+      setCompletedCounts(counts)
+    }
+  }
 
   const fetchFriendships = async () => {
     if (!user) return
@@ -161,14 +183,28 @@ export default function Friends() {
               const friend = getFriendProfile(f)
               return (
                 <div key={f.id} className={`flex items-center gap-3 rounded-xl p-3 ${isDark ? 'bg-dark-input border border-dark-border' : 'bg-cream-input border border-cream-border'}`}>
-                  <div className="w-10 h-10 rounded-full bg-love-gradient flex items-center justify-center text-white font-bold text-sm shadow-glow">
-                    {friend?.full_name?.charAt(0)?.toUpperCase() ?? '?'}
+                  <div className="w-10 h-10 rounded-full overflow-hidden shadow-glow shrink-0">
+                    {friend?.avatar_url ? (
+                      <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-love-gradient flex items-center justify-center text-white font-bold text-sm">
+                        {friend?.full_name?.charAt(0)?.toUpperCase() ?? '?'}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-800'}`}>{friend?.full_name}</p>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>{friend?.email}</p>
                   </div>
-                  <Heart className="w-4 h-4 text-rose" fill="currentColor" />
+                  <div className="flex items-center gap-2 shrink-0">
+                    {friend?.id && completedCounts[friend.id] ? (
+                      <span className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg ${isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
+                        <CalendarHeart className="w-3.5 h-3.5" />
+                        {completedCounts[friend.id]} date{completedCounts[friend.id] !== 1 ? 's' : ''}
+                      </span>
+                    ) : null}
+                    <Heart className="w-4 h-4 text-rose" fill="currentColor" />
+                  </div>
                 </div>
               )
             })}

@@ -156,6 +156,42 @@ create policy "Users can update own friendship goals" on public.friendship_goals
     )
   );
 
+-- 6. Date Memories table (for completed dates)
+create table public.date_memories (
+  id uuid default gen_random_uuid() primary key,
+  date_invite_id uuid references public.date_invites(id) on delete cascade unique not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  memo text,
+  photo_urls text[] default '{}',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.date_memories enable row level security;
+
+create policy "Users can view memories for their dates" on public.date_memories
+  for select using (
+    exists (
+      select 1 from public.date_invites
+      where date_invites.id = date_memories.date_invite_id
+      and (date_invites.creator_id = auth.uid() or date_invites.partner_id = auth.uid())
+    )
+  );
+
+create policy "Users can create memories for their dates" on public.date_memories
+  for insert with check (
+    auth.uid() = user_id and
+    exists (
+      select 1 from public.date_invites
+      where date_invites.id = date_invite_id
+      and status = 'completed'
+      and (date_invites.creator_id = auth.uid() or date_invites.partner_id = auth.uid())
+    )
+  );
+
+create policy "Users can update own memories" on public.date_memories
+  for update using (auth.uid() = user_id);
+
 -- Auto-create friendship goal when friendship is accepted
 create or replace function public.handle_friendship_accepted()
 returns trigger as $$

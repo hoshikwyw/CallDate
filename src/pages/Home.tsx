@@ -39,9 +39,9 @@ export default function Home() {
     setLoading(false)
   }
 
-  const getPartnerName = (dateInvite: DateInvite) => {
-    if (dateInvite.creator_id === user?.id) return dateInvite.partner?.full_name ?? 'Partner'
-    return dateInvite.creator?.full_name ?? 'Partner'
+  const getPartner = (dateInvite: DateInvite) => {
+    const partner = dateInvite.creator_id === user?.id ? dateInvite.partner : dateInvite.creator
+    return { name: partner?.full_name ?? 'Partner', avatar: partner?.avatar_url ?? null }
   }
 
   return (
@@ -66,11 +66,14 @@ export default function Home() {
           >
             <CalendarHeart className="w-4 h-4" />
             <span className="hidden sm:inline">My Dates</span>
-            {dates.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose text-white text-[10px] font-bold flex items-center justify-center">
-                {dates.length}
-              </span>
-            )}
+            {(() => {
+              const pending = dates.filter(d => d.status === 'pending').length
+              return pending > 0 ? (
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose text-white text-[10px] font-bold flex items-center justify-center">
+                  {pending}
+                </span>
+              ) : null
+            })()}
           </button>
           <button onClick={() => navigate('/friends')} className="btn-secondary flex items-center gap-2">
             <Users className="w-4 h-4" />
@@ -163,7 +166,8 @@ export default function Home() {
                 <DateCard
                   key={d.id}
                   dateInvite={d}
-                  partnerName={getPartnerName(d)}
+                  partnerName={getPartner(d).name}
+                  partnerAvatar={getPartner(d).avatar}
                   onClick={() => { setShowDatesPanel(false); navigate(`/date/${d.id}`) }}
                 />
               ))}

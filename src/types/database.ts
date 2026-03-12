@@ -30,6 +30,7 @@ export interface DateInvite {
   confirmed_date: string | null
   confirmed_time: string | null
   status: DateStatus
+  cancel_reason: string | null
   created_at: string
   creator?: Profile
   partner?: Profile
@@ -45,6 +46,16 @@ export interface Place {
   photo_url: string | null
   is_selected: boolean
   created_at: string
+}
+
+export interface DateMemory {
+  id: string
+  date_invite_id: string
+  user_id: string
+  memo: string | null
+  photo_urls: string[]
+  created_at: string
+  updated_at: string
 }
 
 export interface FriendshipGoal {
