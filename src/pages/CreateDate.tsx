@@ -48,7 +48,11 @@ export default function CreateDate() {
       .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
 
     if (data) {
-      const friendProfiles = data.map(f => f.requester.id === user.id ? f.addressee : f.requester)
+      const friendProfiles = data.map(f => {
+        const requester = f.requester as unknown as Profile
+        const addressee = f.addressee as unknown as Profile
+        return requester.id === user.id ? addressee : requester
+      })
       setFriends(friendProfiles)
     }
   }
