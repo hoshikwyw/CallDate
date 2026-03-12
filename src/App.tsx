@@ -7,6 +7,7 @@ import Signup from './pages/Signup'
 import CreateDate from './pages/CreateDate'
 import AcceptInvite from './pages/AcceptInvite'
 import Friends from './pages/Friends'
+import Profile from './pages/Profile'
 import './index.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ function AppRoutes() {
       <Route path="/create" element={<ProtectedRoute><CreateDate /></ProtectedRoute>} />
       <Route path="/date/:id" element={<ProtectedRoute><AcceptInvite /></ProtectedRoute>} />
       <Route path="/friends" element={<ProtectedRoute><Friends /></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
     </Routes>
   )
 }
